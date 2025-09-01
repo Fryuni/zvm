@@ -16,6 +16,9 @@ import (
 	"github.com/tristanisham/clr"
 )
 
+const ZigDefaultVMU = "https://ziglang.org/download/index.json"
+const ZlsDefaultVMU = "https://releases.zigtools.org/"
+
 type Settings struct {
 	path               string
 	VersionMapUrl      string `json:"versionMapUrl,omitempty"`    // Zig's version map URL
@@ -39,7 +42,7 @@ func (s *Settings) ToggleColor() {
 }
 
 func (s *Settings) ResetVersionMap() error {
-	s.VersionMapUrl = "https://ziglang.org/download/index.json"
+	s.VersionMapUrl = ZigDefaultVMU
 	if err := s.save(); err != nil {
 		return err
 	}
@@ -48,7 +51,7 @@ func (s *Settings) ResetVersionMap() error {
 }
 
 func (s *Settings) ResetZlsVMU() error {
-	s.ZlsVMU = "https://releases.zigtools.org/"
+	s.ZlsVMU = ZlsDefaultVMU
 	if err := s.save(); err != nil {
 		return err
 	}
