@@ -6,6 +6,7 @@ package cli
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -202,28 +203,24 @@ func (z *ZVM) Install(version string, force bool) error {
 func requestDownload(tarURL string) (*http.Response, error) {
 	log.Debug("requestWithMirror", "tarURL", tarURL)
 
-	tarResp, err := attemptDownload(tarURL)
-	if err != nil {
-		return nil, err
-	}
+	mirrorList := getMirrorList()
 
-	if tarResp.StatusCode == 200 {
-		return tarResp, nil
-	}
+	// As a last resource, try the original URL.
+	mirrorList = append(mirrorList, "")
 
-	mirrors := []func(string) (string, error){mirrorHryx, mirrorMachEngine}
+	var err error
 
-	for i, mirror := range mirrors {
-		log.Debugf("requestWithMirror url #%d", i)
+	for i, mirror := range mirrorList {
+		log.Debugf("requestWithMirror url %q", mirror)
 
-		newURL, err := mirror(tarURL)
+		newURL, err := mirrorReplace(tarURL, mirror)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrDownloadFail, err)
 		}
 
 		log.Debug(fmt.Sprintf("mirror %d", i), "url", newURL)
 
-		tarResp, err = attemptDownload(newURL)
+		tarResp, err := attemptDownload(newURL)
 		if err != nil {
 			log.Debug("mirror req err", "mirror", newURL, "error", err)
 			continue
@@ -290,13 +287,40 @@ func createDownloadReq(tarURL string) (*http.Request, error) {
 	return zigDownloadReq, nil
 }
 
+func getMirrorList() []string {
+	res, err := http.Get("https://ziglang.org/download/community-mirrors.txt")
+	if err != nil {
+		return nil
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		lines := bytes.Split(data, []byte{'\n'})
+		var mirrorList []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(string(line))
+			if len(trimmed) > 0 {
+				mirrorList = append(mirrorList, trimmed)
+			}
+		}
+		return mirrorList
+	}
+	return nil
+}
+
 // mirrorReplace takes official Zig VMU download links and replaces them with an alternative download url.
 func mirrorReplace(url, mirror string) (string, error) {
+	// If no mirror is set, return the original URL.
+	if mirror == "" {
+		return url, nil
+	}
 	var downloadToggle bool = false
 	dlBuild := "https://ziglang.org/builds/"
 	dlDownload := "https://ziglang.org/download/"
 	if !strings.HasPrefix(url, dlBuild) && !strings.HasPrefix(url, dlDownload) {
-		return "", fmt.Errorf("%w: expected a url that started with %s or %s. Recieved %q", ErrInvalidInput, dlBuild, dlDownload, url)
+		// Unknown URL format. Return the original URL.
+		return url, nil
+		// return "", fmt.Errorf("%w: expected a url that started with %s or %s. Recieved %q", ErrInvalidInput, dlBuild, dlDownload, url)
 	}
 
 	if strings.HasPrefix(url, dlDownload) {
@@ -308,16 +332,6 @@ func mirrorReplace(url, mirror string) (string, error) {
 	}
 
 	return strings.Replace(url, dlBuild, mirror, 1), nil
-}
-
-// mirrorHryx returns the Hryx mirror url equivilant for a Zig Build tarball URL.
-func mirrorHryx(url string) (string, error) {
-	return mirrorReplace(url, "https://zigmirror.hryx.net/zig/")
-}
-
-// mirrorMachEngine returns the Mach Engine mirror url equivilant for a Zig Build tarball URL.
-func mirrorMachEngine(url string) (string, error) {
-	return mirrorReplace(url, "https://pkg.machengine.org/zig/")
 }
 
 func (z *ZVM) SelectZlsVersion(version string, compatMode string) (string, string, string, error) {
